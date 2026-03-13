@@ -28,11 +28,12 @@ public static class RabbitMQTopologyBuilder
                 continue;
             }
 
-            await channel.QueueDeclareAsync(
+            await SafeQueueDeclareAsync(channel,
                 queue: queue.Queue,
                 durable: queue.Durable,
                 exclusive: false,
-                autoDelete: false);
+                autoDelete: false,
+                arguments: null);
 
             await channel.QueueBindAsync(
                 queue: queue.Queue,
@@ -64,8 +65,8 @@ public static class RabbitMQTopologyBuilder
             { "x-dead-letter-routing-key", $"{mainRoutingKey}.retry.1" }
         };
 
-        await channel.QueueDeclareAsync(
-            queue.Queue,
+        await SafeQueueDeclareAsync(channel,
+            queue: queue.Queue,
             durable: queue.Durable,
             exclusive: false,
             autoDelete: false,
@@ -92,8 +93,8 @@ public static class RabbitMQTopologyBuilder
                 { "x-dead-letter-routing-key", nextRoutingKey }
             };
 
-            await channel.QueueDeclareAsync(
-                retryQueueName,
+            await SafeQueueDeclareAsync(channel,
+                queue: retryQueueName,
                 durable: true,
                 exclusive: false,
                 autoDelete: false,
@@ -107,15 +108,60 @@ public static class RabbitMQTopologyBuilder
 
         // fila final (dead) para mensagens definitivamente com falha
         var deadQueue = $"{queue.Queue}{retry.DeadSuffix}";
-        await channel.QueueDeclareAsync(
-            deadQueue,
+        await SafeQueueDeclareAsync(channel,
+            queue: deadQueue,
             durable: true,
             exclusive: false,
-            autoDelete: false);
+            autoDelete: false,
+            arguments: null);
 
         await channel.QueueBindAsync(
             deadQueue,
             exchange,
             deadRoutingKey);
+    }
+
+    private static async Task SafeQueueDeclareAsync(
+        IChannel channel,
+        string queue,
+        bool durable,
+        bool exclusive,
+        bool autoDelete,
+        IDictionary<string, object>? arguments)
+    {
+        try
+        {
+            await channel.QueueDeclareAsync(
+                queue: queue,
+                durable: durable,
+                exclusive: exclusive,
+                autoDelete: autoDelete,
+                arguments: arguments);
+        }
+        catch (RabbitMQ.Client.Exceptions.OperationInterruptedException ex)
+        {
+            // PRECONDITION_FAILED - inequivalent arg -> try delete and recreate
+            var reply = ex.ShutdownReason?.ReplyText ?? string.Empty;
+            if (reply.Contains("PRECONDITION_FAILED", StringComparison.OrdinalIgnoreCase) &&
+                reply.Contains("inequivalent arg", StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    await channel.QueueDeleteAsync(queue, ifUnused: false, ifEmpty: false);
+                }
+                catch { }
+
+                await channel.QueueDeclareAsync(
+                    queue: queue,
+                    durable: durable,
+                    exclusive: exclusive,
+                    autoDelete: autoDelete,
+                    arguments: arguments);
+
+                return;
+            }
+
+            throw;
+        }
     }
 }

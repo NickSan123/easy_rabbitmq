@@ -2,7 +2,6 @@
 using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
 using System;
-using System.Collections.Generic;
 using System.Text;
 using System.Text.Json;
 
@@ -19,51 +18,63 @@ public class RabbitMQConsumer(IRabbitMQChannelPool channelPool) : IRabbitMQConsu
     {
         var channel = await _channelPool.RentAsync(cancellationToken);
 
-        await channel.QueueDeclareAsync(
-            queue: queue,
-            durable: true,
-            exclusive: false,
-            autoDelete: false);
-
-        await channel.BasicQosAsync(
-            prefetchSize: 0,
-            prefetchCount: 10,
-            global: false);
-
-        var consumer = new AsyncEventingBasicConsumer(channel);
-
-        consumer.ReceivedAsync += async (model, ea) =>
+        try
         {
+            await channel.QueueDeclareAsync(
+                queue: queue,
+                durable: true,
+                exclusive: false,
+                autoDelete: false);
+
+            await channel.BasicQosAsync(
+                prefetchSize: 0,
+                prefetchCount: 10,
+                global: false);
+
+            var consumer = new AsyncEventingBasicConsumer(channel);
+
+            consumer.ReceivedAsync += async (model, ea) =>
+            {
+                try
+                {
+                    var body = ea.Body.ToArray();
+                    var json = Encoding.UTF8.GetString(body);
+
+                    var message = JsonSerializer.Deserialize<T>(json);
+
+                    if (message != null)
+                        await handler(message);
+
+                    await channel.BasicAckAsync(ea.DeliveryTag, false);
+                }
+                catch
+                {
+                    await channel.BasicNackAsync(
+                        ea.DeliveryTag,
+                        false,
+                        true);
+                }
+            };
+
+            await channel.BasicConsumeAsync(
+                queue: queue,
+                autoAck: false,
+                consumer: consumer);
+
+            // mantém o consumer ativo até o cancelamento
             try
             {
-                var body = ea.Body.ToArray();
-                var json = Encoding.UTF8.GetString(body);
-
-                var message = JsonSerializer.Deserialize<T>(json);
-
-                if (message != null)
-                    await handler(message);
-
-                await channel.BasicAckAsync(ea.DeliveryTag, false);
+                await Task.Delay(Timeout.Infinite, cancellationToken);
             }
-            catch
+            catch (OperationCanceledException)
             {
-                await channel.BasicNackAsync(
-                    ea.DeliveryTag,
-                    false,
-                    true);
+                // cancelamento solicitado: sair de forma graciosa
             }
-        };
-
-        await channel.BasicConsumeAsync(
-            queue: queue,
-            autoAck: false,
-            consumer: consumer);
-
-        // mantém o consumer ativo
-        while (!cancellationToken.IsCancellationRequested)
+        }
+        finally
         {
-            await Task.Delay(1000, cancellationToken);
+            // garante que o canal seja devolvido ao pool mesmo em caso de erro/cancelamento
+            _channelPool.Return(channel);
         }
     }
 }

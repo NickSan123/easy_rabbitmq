@@ -4,7 +4,6 @@ using easy_rabbitmq.Extensions;
 using easy_rabbitmq.Topology;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using System.Threading.Tasks;
 
 var host = Host.CreateDefaultBuilder(args)
     .ConfigureServices(services =>
@@ -28,18 +27,18 @@ var pool = services.GetRequiredService<IRabbitMQChannelPool>();
 // Define uma topologia de exemplo com retry
 var topology = new RabbitMQTopology
 {
-    Exchange = "example.exchange",
+    Exchange = "friendly.events",
     ExchangeType = easy_rabbitmq.Enums.RabbitMQExchangeType.Direct,
     Durable = true,
-    Queues = new List<RabbitMQQueueTopology>
-    {
-        new RabbitMQQueueTopology { Queue = "example.queue.primary", RoutingKey = "device.offline", Durable = true },
-        new RabbitMQQueueTopology { Queue = "example.queue.secondary", RoutingKey = "device.logs", Durable = true }
-    },
+    Queues =
+    [
+        new() { Queue = "friendly.queue.offline", RoutingKey = "device.offline", Durable = true },
+        new() { Queue = "friendly.queue.logs", RoutingKey = "device.logs", Durable = true }
+    ],
     Retry = new RabbitMQRetryOptions
     {
         Enabled = true,
-        Delays = new[] { 5, 10 },
+        Delays = [5, 10],
         RetrySuffix = ".retry",
         DeadSuffix = ".dead"
     }
@@ -56,7 +55,11 @@ finally
     pool.Return(channel);
 }
 
-Console.WriteLine("Publicando mensagens de exemplo na exchange 'example.exchange'...");
+// sinaliza que a topologia foi inicializada (útil para o publisher local)
+var topologyManager = services.GetRequiredService<easy_rabbitmq.Topology.TopologyManager>();
+topologyManager.SetReady();
+
+Console.WriteLine("Publicando mensagens de exemplo na exchange 'friendly.events'...");
 
 // publica mensagens normais e algumas que devem falhar para acionar retry
 for (int i = 1; i <= 10; i++)

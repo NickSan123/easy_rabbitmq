@@ -29,14 +29,14 @@ var topology = new RabbitMQTopology
     Exchange = "friendly.events",
     ExchangeType = easy_rabbitmq.Enums.RabbitMQExchangeType.Direct,
     Durable = true,
-    Queues = new List<RabbitMQQueueTopology>
-    {
-        new RabbitMQQueueTopology { Queue = "friendly.queue.offiline", RoutingKey = "device.offline", Durable = true }
-    },
+    Queues =
+    [
+        new RabbitMQQueueTopology { Queue = "friendly.queue.offline", RoutingKey = "device.offline", Durable = true }
+    ],
     Retry = new RabbitMQRetryOptions
     {
         Enabled = true,
-        Delays = new[] { 5, 10 },
+        Delays = [5, 10],
         RetrySuffix = ".retry",
         DeadSuffix = ".dead"
     }
