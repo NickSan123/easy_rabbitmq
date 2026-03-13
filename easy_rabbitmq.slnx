@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="easy_rabbitmq/easy_rabbitmq.csproj" />
+  <Project Path="rabbitmq.consumer.test/rabbitmq.consumer.test.csproj" />
+  <Project Path="rabbitmq.producer.test/rabbitmq.producer.test.csproj" />
+</Solution>
