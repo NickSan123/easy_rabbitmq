@@ -15,4 +15,5 @@ public class RabbitMQOptions
     public int RequestedConnectionTimeout { get; set; } = 30000;
     public int RequestedHeartbeat { get; set; } = 60;
     public bool AutomaticRecoveryEnabled { get; set; } = true;
+    public RabbitMQRetryOptions Retry { get; set; } = new();
 }

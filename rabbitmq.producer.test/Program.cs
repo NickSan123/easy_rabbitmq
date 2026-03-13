@@ -1,7 +1,10 @@
 ﻿using easy_rabbitmq.Abstractions;
+using easy_rabbitmq.Configuration;
 using easy_rabbitmq.Extensions;
+using easy_rabbitmq.Topology;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using System.Threading.Tasks;
 
 var host = Host.CreateDefaultBuilder(args)
     .ConfigureServices(services =>
@@ -18,25 +21,56 @@ var host = Host.CreateDefaultBuilder(args)
     })
     .Build();
 
-var publisher = host.Services.GetRequiredService<IRabbitMQPublisher>();
+var services = host.Services;
+var publisher = services.GetRequiredService<IRabbitMQPublisher>();
+var pool = services.GetRequiredService<IRabbitMQChannelPool>();
 
-Console.WriteLine("Publicando mensagens...");
+// Define uma topologia de exemplo com retry
+var topology = new RabbitMQTopology
+{
+    Exchange = "example.exchange",
+    ExchangeType = easy_rabbitmq.Enums.RabbitMQExchangeType.Direct,
+    Durable = true,
+    Queues = new List<RabbitMQQueueTopology>
+    {
+        new RabbitMQQueueTopology { Queue = "example.queue.primary", RoutingKey = "device.offline", Durable = true },
+        new RabbitMQQueueTopology { Queue = "example.queue.secondary", RoutingKey = "device.logs", Durable = true }
+    },
+    Retry = new RabbitMQRetryOptions
+    {
+        Enabled = true,
+        Delays = new[] { 5, 10 },
+        RetrySuffix = ".retry",
+        DeadSuffix = ".dead"
+    }
+};
 
+// Declara exchanges/filas/topologia
+var channel = await pool.RentAsync();
+try
+{
+    await RabbitMQTopologyBuilder.DeclareAsync(channel, topology);
+}
+finally
+{
+    pool.Return(channel);
+}
 
+Console.WriteLine("Publicando mensagens de exemplo na exchange 'example.exchange'...");
 
-    //await publisher.PublishAsync(
-    //    exchange: "botwatchman.events",
-    //    routingKey: "botwatchman.#",
-    //    message: item);
+// publica mensagens normais e algumas que devem falhar para acionar retry
+for (int i = 1; i <= 10; i++)
+{
+    var msg = new DeviceMessage { Sn = i % 3 == 0 ? $"device-{i:000}-fail" : $"device-{i:000}" };
+    await publisher.PublishAsync(exchange: topology.Exchange, routingKey: "device.offline", message: msg);
+    Console.WriteLine($"Mensagem publicada: {msg.Sn}");
+    await Task.Delay(300);
+}
 
-    
-
-Console.WriteLine("Fim");
+Console.WriteLine("Publicação finalizada. Pressione Enter para sair...");
 Console.ReadLine();
 
-public class events
+public class DeviceMessage
 {
-    public int Id { get; set; }
-    public DateTime timestamp { get; set; }
-    public object data { get; set; }
+    public string Sn { get; set; } = string.Empty;
 }

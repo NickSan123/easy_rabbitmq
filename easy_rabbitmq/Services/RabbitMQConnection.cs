@@ -6,9 +6,9 @@ using Microsoft.Extensions.Logging;
 
 namespace easy_rabbitmq.Services;
 
-public class RabbitMQConnection(RabbitMQOptions options) : IRabbitMQConnection
+public class RabbitMQConnection(Microsoft.Extensions.Options.IOptions<RabbitMQOptions> options) : IRabbitMQConnection
 {
-    private readonly RabbitMQOptions _options = options;
+    private readonly RabbitMQOptions _options = options.Value;
     private IConnection? _connection;
     private readonly SemaphoreSlim _lock = new(1, 1);
 
@@ -33,7 +33,8 @@ public class RabbitMQConnection(RabbitMQOptions options) : IRabbitMQConnection
                 VirtualHost = _options.VirtualHost,
                 RequestedHeartbeat = TimeSpan.FromSeconds(_options.RequestedHeartbeat),
                 AutomaticRecoveryEnabled = _options.AutomaticRecoveryEnabled,
-                ClientProvidedName = _options.ClientProvidedName
+                ClientProvidedName = _options.ClientProvidedName,
+                RequestedConnectionTimeout = TimeSpan.FromMilliseconds(_options.RequestedConnectionTimeout),  
             };
 
             _connection = await factory.CreateConnectionAsync();
