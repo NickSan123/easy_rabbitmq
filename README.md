@@ -1,10 +1,25 @@
+
 ## easy_rabbitmq
 
-`easy_rabbitmq` é uma biblioteca de apoio para publicar, consumir e gerenciar topologia no RabbitMQ usando .NET, com foco em simplicidade, DI e boas práticas (reconexão, pooling de canais, etc.).
+Biblioteca leve para facilitar o uso do RabbitMQ em aplicações .NET 10 (C# 14).
 
-### Instalação
+### Recursos principais
 
-Adicione a referência ao projeto (ou ao pacote NuGet, se você o publicar) e depois registre os serviços no seu `Host`:
+- Abstrações para conexão (`IRabbitMQConnection`) e pool de canais (`IRabbitMQChannelPool`).
+- Publisher (`IRabbitMQPublisher`) com suporte a confirmações de publicação (publisher confirms) usando a API moderna do `RabbitMQ.Client`.
+- Helpers para declarar topologia (`RabbitMQTopologyBuilder`), incluindo filas de retry (TTL + DLX).
+- Starter de consumers que registra consumidores anotados e um exemplo de consumer manual.
+- `TopologyManager` para coordenar readiness entre declaração de topologia e publishers.
+
+### Instalação via NuGet
+
+```bash
+dotnet add package NickSan123.EasyRabbitMQ
+```
+
+### Registro de serviços
+
+No `HostBuilder`, registre a biblioteca via `AddEasyRabbitMQ` (Options pattern):
 
 ```csharp
 services.AddEasyRabbitMQ(options =>
@@ -14,109 +29,66 @@ services.AddEasyRabbitMQ(options =>
     options.UserName = "guest";
     options.Password = "guest";
     options.VirtualHost = "/";
-    options.ClientProvidedName = "producer-test";
+    options.ClientProvidedName = "my-app";
 });
 ```
 
-### Conexão e Pool de Canais
+O método `AddEasyRabbitMQ` registra as implementações padrão:
+- `IRabbitMQConnection` -> `RabbitMQConnection`
+- `IRabbitMQChannelFactory` -> `RabbitMQChannelFactory`
+- `IRabbitMQChannelPool` -> `RabbitMQChannelPool`
+- `IRabbitMQPublisher` -> `RabbitMQPublisher`
+- `RabbitMQConsumerStarter`, `IRabbitMQConsumer` e um `IHostedService` para iniciar consumers
+- `TopologyManager` (singleton)
 
-- **Interface**: `IRabbitMQConnection`  
-- **Implementação**: `RabbitMQConnection`
+### Publicação e consumo
 
-Ela cria e mantém uma única instância de `IConnection` usando `ConnectionFactory.CreateConnectionAsync`, com:
-
-- Heartbeat configurável
-- Reconexão automática (`AutomaticRecoveryEnabled`)
-- `ClientProvidedName` para facilitar identificação no management
-
-Para canais:
-
-- **Interface**: `IRabbitMQChannelPool`
-- **Implementação**: `RabbitMQChannelPool`
-
-O pool:
-
-- Controla o número máximo de canais (`maxChannels`, padrão 20)
-- Reaproveita canais abertos em um `ConcurrentBag<IChannel>`
-- Cria canais novos via `IConnection.CreateChannelAsync(...)`
-- **Habilita publisher confirms** usando `CreateChannelOptions`:
+- Publisher: resolva `IRabbitMQPublisher` via DI e invoque:
 
 ```csharp
-var channelOptions = new CreateChannelOptions(
-    publisherConfirmationsEnabled: true,
-    publisherConfirmationTrackingEnabled: true,
-    outstandingPublisherConfirmationsRateLimiter: null,
-    consumerDispatchConcurrency: 1);
-
-var channel = await conn.CreateChannelAsync(channelOptions, cancellationToken: ct);
+await publisher.PublishAsync(exchange: "exchange.name", routingKey: "my.key", message: myObj);
 ```
 
-Com isso, todos os canais usados pela biblioteca já vêm com confirmações de publisher configuradas de forma nativa pelo client RabbitMQ 7+.
+- Consumer:
+  - Consumer manual (`rabbitmq.consumer.test`): usa `AsyncEventingBasicConsumer` diretamente e demonstra nack/ack e retry.
+  - Consumer automático (`RabbitMQConsumerStarter`): escaneia tipos anotados (via atributo) e registra consumers via `AddRabbitMQConsumersFromAssembly`.
 
-### Publicação com Confirmação
+### Topologia e retries
 
-- **Interface**: `IRabbitMQPublisher`
-- **Implementação**: `RabbitMQPublisher`
+Use `RabbitMQTopology` e `RabbitMQTopologyBuilder` para declarar a topologia do sistema. A abordagem padrão é:
 
-O publisher:
+- Um exchange principal.
+- Cada fila principal com `x-dead-letter-exchange` apontando para o mesmo exchange e `x-dead-letter-routing-key` para a primeira fila de retry.
+- Filas de retry com `x-message-ttl` e `x-dead-letter-routing-key` apontando para a próxima fila (ou para `.dead`).
+- Uma fila final `.dead` recebendo mensagens que esgotaram os retries.
 
-1. Aguarda a topologia estar pronta via `TopologyManager.Ready` (útil quando um starter se encarrega de declarar exchanges/filas).
-2. Aluga um canal do pool (`IRabbitMQChannelPool.RentAsync`).
-3. Serializa a mensagem em JSON (`System.Text.Json`).
-4. Publica usando `BasicPublishAsync` do próprio `IChannel`:
+Exemplo:
 
 ```csharp
-await channel.BasicPublishAsync(exchange, routingKey, body, cancellationToken: cancellationToken);
+var topology = new RabbitMQTopology
+{
+    Exchange = "friendly.events",
+    ExchangeType = RabbitMQExchangeType.Direct,
+    Durable = true,
+    Queues = new List<RabbitMQQueueTopology>
+    {
+        new() { Queue = "friendly.queue.offline", RoutingKey = "device.offline", Durable = true }
+    },
+    Retry = new RabbitMQRetryOptions
+    {
+        Enabled = true,
+        Delays = new[] { 5, 10 }, // segundos
+        RetrySuffix = ".retry",
+        DeadSuffix = ".dead"
+    }
+};
+
+var ch = await pool.RentAsync();
+try { await RabbitMQTopologyBuilder.DeclareAsync(ch, topology); }
+finally { pool.Return(ch); }
+
+// se você declarar topologia manualmente (producer standalone), sinalize readiness:
+var topologyManager = services.GetRequiredService<TopologyManager>();
+topologyManager.SetReady();
 ```
-
-Graças às opções de canal citadas acima, o próprio `BasicPublishAsync`:
-
-- Aguarda o ACK/NACK do broker
-- Lança uma exceção (por exemplo, `PublishException`) em caso de falha de confirmação
-
-Assim você obtém publisher confirms de forma transparente, sem precisar lidar manualmente com `ConfirmSelect`, `BasicAcksAsync`/`BasicNacksAsync` ou dicionários de pendências.
-
-### Exemplo de Producer (`rabbitmq.producer.test`)
-
-O projeto `rabbitmq.producer.test` mostra um uso completo:
-
-- Configuração do host e DI
-- Criação de uma topologia (`RabbitMQTopology`) com:
-  - Exchange (`friendly.events`)
-  - Filas e routing keys
-  - Opções de retry / dead-letter
-- Declaração da topologia com `RabbitMQTopologyBuilder.DeclareAsync`
-- Sinalização de prontidão via `TopologyManager.SetReady()`
-- Publicação de mensagens:
-
-```csharp
-var publisher = services.GetRequiredService<IRabbitMQPublisher>();
-await publisher.PublishAsync(exchange: topology.Exchange,
-                             routingKey: "device.offline",
-                             message: new DeviceMessage { Sn = "device-001" });
-```
-
-### Exemplo de Consumer
-
-O projeto `rabbitmq.consumer.test` (e a classe `RabbitMQConsumer`) mostram como:
-
-- Alugar um canal do pool
-- Declarar/consumir filas
-- Processar mensagens e lidar com ACK/NACK
-
-### Boas Práticas e Erros Comuns
-
-- **ConfirmSelect removido**  
-  Em versões antigas do client RabbitMQ para .NET, era comum chamar `ConfirmSelect` diretamente no `IModel`. A partir do `RabbitMQ.Client 7+`, isso foi removido do `IChannel`; confirmações são habilitadas via `CreateChannelOptions`. A biblioteca já está adaptada para esse modelo.
-
-- **Topologia não pronta**  
-  Se você publicar imediatamente na inicialização, garantida a chamada para `TopologyManager.SetReady()` após a declaração da topologia (como no projeto `rabbitmq.producer.test`), para o publisher aguardar corretamente.
-
-### Onde evoluir
-
-- Expor configurações de:
-  - Número máximo de canais (`maxChannels`)
-  - `consumerDispatchConcurrency`
-  - Estratégia de rate limit para confirmações
-- Documentar detalhadamente as opções de retry / dead-letter na topologia.
 
