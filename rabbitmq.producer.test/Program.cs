@@ -27,13 +27,13 @@ var pool = services.GetRequiredService<IRabbitMQChannelPool>();
 // Define uma topologia de exemplo com retry
 var topology = new RabbitMQTopology
 {
-    Exchange = "friendly.events",
+    Exchange = "example.events",
     ExchangeType = easy_rabbitmq.Enums.RabbitMQExchangeType.Direct,
     Durable = true,
     Queues =
     [
-        new() { Queue = "friendly.queue.offline", RoutingKey = "device.offline", Durable = true },
-        new() { Queue = "friendly.queue.logs", RoutingKey = "device.logs", Durable = true }
+        new() { Queue = "example.queue.offline", RoutingKey = "device.offline", Durable = true },
+        new() { Queue = "example.queue.logs", RoutingKey = "device.logs", Durable = true }
     ],
     Retry = new RabbitMQRetryOptions
     {
@@ -59,7 +59,7 @@ finally
 var topologyManager = services.GetRequiredService<easy_rabbitmq.Topology.TopologyManager>();
 topologyManager.SetReady();
 
-Console.WriteLine("Publicando mensagens de exemplo na exchange 'friendly.events'...");
+Console.WriteLine("Publicando mensagens de exemplo na exchange 'example.events'...");
 
 // publica mensagens normais e algumas que devem falhar para acionar retry
 for (int i = 1; i <= 10; i++)

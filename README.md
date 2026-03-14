@@ -14,8 +14,12 @@ Biblioteca leve para facilitar o uso do RabbitMQ em aplicações .NET 10 (C# 14)
 ### Instalação via NuGet
 
 ```bash
-dotnet add package NickSan123.EasyRabbitMQ
+dotnet add package easy_rabbitmq
 ```
+
+### Repositório
+
+Código-fonte disponível em [`github.com/NickSan123/easy_rabbitmq`](https://github.com/NickSan123/easy_rabbitmq).
 
 ### Registro de serviços
 
@@ -41,17 +45,152 @@ O método `AddEasyRabbitMQ` registra as implementações padrão:
 - `RabbitMQConsumerStarter`, `IRabbitMQConsumer` e um `IHostedService` para iniciar consumers
 - `TopologyManager` (singleton)
 
-### Publicação e consumo
-
-- Publisher: resolva `IRabbitMQPublisher` via DI e invoque:
+### Exemplo simples de uso (producer + consumer)
 
 ```csharp
-await publisher.PublishAsync(exchange: "exchange.name", routingKey: "my.key", message: myObj);
+using easy_rabbitmq.Abstractions;
+using easy_rabbitmq.Extensions;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+
+var host = Host.CreateDefaultBuilder(args)
+    .ConfigureServices(services =>
+    {
+        services.AddEasyRabbitMQ(options =>
+        {
+            options.HostName = "localhost";
+            options.Port = 5672;
+            options.UserName = "guest";
+            options.Password = "guest";
+            options.VirtualHost = "/";
+            options.ClientProvidedName = "my-simple-app";
+        });
+    })
+    .Build();
+
+var services = host.Services;
+
+// producer
+var publisher = services.GetRequiredService<IRabbitMQPublisher>();
+await publisher.PublishAsync(
+    exchange: "example.events",
+    routingKey: "device.offline",
+    message: new { Sn = "device-001" });
+
+// consumer simples (manual) para a mesma fila
+var pool = services.GetRequiredService<IRabbitMQChannelPool>();
+var channel = await pool.RentAsync();
+
+var consumer = new AsyncEventingBasicConsumer(channel);
+consumer.ReceivedAsync += async (_, ea) =>
+{
+    var json = Encoding.UTF8.GetString(ea.Body.ToArray());
+    Console.WriteLine($"[simple-consumer] Recebido: {json}");
+    await channel.BasicAckAsync(ea.DeliveryTag, multiple: false);
+};
+
+await channel.BasicConsumeAsync(
+    queue: "example.queue.offline",
+    autoAck: false,
+    consumer: consumer);
+
+Console.ReadLine();
 ```
 
-- Consumer:
-  - Consumer manual (`rabbitmq.consumer.test`): usa `AsyncEventingBasicConsumer` diretamente e demonstra nack/ack e retry.
-  - Consumer automático (`RabbitMQConsumerStarter`): escaneia tipos anotados (via atributo) e registra consumers via `AddRabbitMQConsumersFromAssembly`.
+### Exemplo completo (producer + consumer com topologia e retry)
+
+```csharp
+using easy_rabbitmq.Abstractions;
+using easy_rabbitmq.Configuration;
+using easy_rabbitmq.Extensions;
+using easy_rabbitmq.Topology;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
+
+var host = Host.CreateDefaultBuilder(args)
+    .ConfigureServices(services =>
+    {
+        services.AddEasyRabbitMQ(options =>
+        {
+            options.HostName = "localhost";
+            options.Port = 5672;
+            options.UserName = "guest";
+            options.Password = "guest";
+            options.VirtualHost = "/";
+            options.ClientProvidedName = "my-complex-app";
+            options.AutomaticRecoveryEnabled = true;
+            options.RequestedHeartbeat = 30;
+            options.RequestedConnectionTimeout = 15000;
+        });
+
+        services.AddRabbitMQConsumersFromAssembly(typeof(Program).Assembly);
+    })
+    .Build();
+
+var services = host.Services;
+
+var topology = new RabbitMQTopology
+{
+    Exchange = "example.events",
+    ExchangeType = easy_rabbitmq.Enums.RabbitMQExchangeType.Direct,
+    Durable = true,
+    Queues =
+    [
+        new() { Queue = "example.queue.offline", RoutingKey = "device.offline", Durable = true },
+        new() { Queue = "example.queue.logs", RoutingKey = "device.logs", Durable = true }
+    ],
+    Retry = new RabbitMQRetryOptions
+    {
+        Enabled = true,
+        Delays = [5, 10],
+        RetrySuffix = ".retry",
+        DeadSuffix = ".dead"
+    }
+};
+
+var pool = services.GetRequiredService<IRabbitMQChannelPool>();
+var channel = await pool.RentAsync();
+try
+{
+    await RabbitMQTopologyBuilder.DeclareAsync(channel, topology);
+}
+finally
+{
+    pool.Return(channel);
+}
+
+var topologyManager = services.GetRequiredService<easy_rabbitmq.Topology.TopologyManager>();
+topologyManager.SetReady();
+
+var publisher = services.GetRequiredService<IRabbitMQPublisher>();
+
+for (int i = 1; i <= 3; i++)
+{
+    var msg = new { Sn = i % 2 == 0 ? $"device-{i:000}-fail" : $"device-{i:000}" };
+    await publisher.PublishAsync(exchange: topology.Exchange, routingKey: "device.offline", message: msg);
+}
+
+await host.RunAsync();
+
+// exemplo de consumer automático usando atributo
+
+using easy_rabbitmq.Consumer;
+
+public class DeviceMessage
+{
+    public string Sn { get; set; } = string.Empty;
+}
+
+[RabbitMQConsumer(queue: "example.queue.offline", exchange: "example.events", routingKey: "device.offline")]
+public class DeviceOfflineConsumer : IRabbitMQMessageConsumer<DeviceMessage>
+{
+    public Task HandleAsync(DeviceMessage message, CancellationToken cancellationToken = default)
+    {
+        Console.WriteLine($"[auto-consumer] Recebido: {message.Sn}");
+        return Task.CompletedTask;
+    }
+}
+```
 
 ### Topologia e retries
 
@@ -67,12 +206,12 @@ Exemplo:
 ```csharp
 var topology = new RabbitMQTopology
 {
-    Exchange = "friendly.events",
+    Exchange = "example.events",
     ExchangeType = RabbitMQExchangeType.Direct,
     Durable = true,
     Queues = new List<RabbitMQQueueTopology>
     {
-        new() { Queue = "friendly.queue.offline", RoutingKey = "device.offline", Durable = true }
+        new() { Queue = "example.queue.offline", RoutingKey = "device.offline", Durable = true }
     },
     Retry = new RabbitMQRetryOptions
     {

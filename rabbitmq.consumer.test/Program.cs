@@ -26,12 +26,12 @@ var services = host.Services;
 // Define a mesma topologia do producer para garantir compatibilidade
 var topology = new RabbitMQTopology
 {
-    Exchange = "friendly.events",
+    Exchange = "example.events",
     ExchangeType = easy_rabbitmq.Enums.RabbitMQExchangeType.Direct,
     Durable = true,
     Queues =
     [
-        new RabbitMQQueueTopology { Queue = "friendly.queue.offline", RoutingKey = "device.offline", Durable = true }
+        new RabbitMQQueueTopology { Queue = "example.queue.offline", RoutingKey = "device.offline", Durable = true }
     ],
     Retry = new RabbitMQRetryOptions
     {
