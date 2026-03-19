@@ -64,7 +64,7 @@ public static class RabbitMQTopologyBuilder
             cancellationToken: cancellationToken);
 
         // main queue deve enviar para o primeiro retry via dead-letter (quando consumer rejeitar)
-        var mainArgs = new Dictionary<string, object>
+        var mainArgs = new Dictionary<string, object?>
         {
             { "x-dead-letter-exchange", exchange },
             { "x-dead-letter-routing-key", $"{mainRoutingKey}.retry.1" }
@@ -93,7 +93,7 @@ public static class RabbitMQTopologyBuilder
             var retryRoutingKey = $"{mainRoutingKey}.retry.{retryIndex}";
             var nextRoutingKey = (i == retry.Delays.Length - 1) ? deadRoutingKey : $"{mainRoutingKey}.retry.{retryIndex + 1}";
 
-            var args = new Dictionary<string, object>
+            var args = new Dictionary<string, object?>
             {
                 { "x-message-ttl", delay * 1000 },
                 { "x-dead-letter-exchange", exchange },
@@ -138,7 +138,7 @@ public static class RabbitMQTopologyBuilder
         bool durable,
         bool exclusive,
         bool autoDelete,
-        IDictionary<string, object>? arguments,
+        IDictionary<string, object?>? arguments,
         CancellationToken cancellationToken = default)
     {
         try
