@@ -8,22 +8,23 @@ public static class RabbitMQTopologyBuilder
 {
     public static async Task DeclareAsync(
         IChannel channel,
-        RabbitMQTopology topology)
+        RabbitMQTopology topology, CancellationToken cancellationToken = default)
     {
         await channel.ExchangeDeclareAsync(
             exchange: topology.Exchange,
             type: topology.ExchangeType.ToExchangeString(),
-            durable: topology.Durable);
+            durable: topology.Durable, cancellationToken: cancellationToken);
 
         foreach (var queue in topology.Queues)
         {
-            if (topology.Retry?.Enabled == true &&
+                if (topology.Retry?.Enabled == true &&
                 topology.Retry.Delays.Length > 0)
             {
                 await DeclareWithRetryAsync(
                     channel,
                     topology,
-                    queue);
+                    queue,
+                    cancellationToken);
 
                 continue;
             }
@@ -33,19 +34,22 @@ public static class RabbitMQTopologyBuilder
                 durable: queue.Durable,
                 exclusive: false,
                 autoDelete: false,
-                arguments: null);
+                arguments: null,
+                cancellationToken: cancellationToken);
 
             await channel.QueueBindAsync(
                 queue: queue.Queue,
                 exchange: topology.Exchange,
-                routingKey: queue.RoutingKey);
+                routingKey: queue.RoutingKey,
+                cancellationToken: cancellationToken);
         }
     }
 
     private static async Task DeclareWithRetryAsync(
         IChannel channel,
         RabbitMQTopology topology,
-        RabbitMQQueueTopology queue)
+        RabbitMQQueueTopology queue,
+        CancellationToken cancellationToken = default)
     {
         var retry = topology.Retry!;
         var exchange = topology.Exchange;
@@ -56,7 +60,8 @@ public static class RabbitMQTopologyBuilder
         await channel.ExchangeDeclareAsync(
             exchange,
             topology.ExchangeType.ToExchangeString(),
-            durable: true);
+            durable: true,
+            cancellationToken: cancellationToken);
 
         // main queue deve enviar para o primeiro retry via dead-letter (quando consumer rejeitar)
         var mainArgs = new Dictionary<string, object>
@@ -70,12 +75,14 @@ public static class RabbitMQTopologyBuilder
             durable: queue.Durable,
             exclusive: false,
             autoDelete: false,
-            arguments: mainArgs);
+            arguments: mainArgs,
+            cancellationToken: cancellationToken);
 
         await channel.QueueBindAsync(
             queue.Queue,
             exchange,
-            mainRoutingKey);
+            mainRoutingKey,
+            cancellationToken: cancellationToken);
 
         // cria as retry queues (sem exchanges adicionais). Cada retry tem TTL e encaminha para o próximo routing key.
         for (int i = 0; i < retry.Delays.Length; i++)
@@ -98,12 +105,14 @@ public static class RabbitMQTopologyBuilder
                 durable: true,
                 exclusive: false,
                 autoDelete: false,
-                arguments: args);
+                arguments: args,
+                cancellationToken: cancellationToken);
 
             await channel.QueueBindAsync(
                 retryQueueName,
                 exchange,
-                retryRoutingKey);
+                retryRoutingKey,
+                cancellationToken: cancellationToken);
         }
 
         // fila final (dead) para mensagens definitivamente com falha
@@ -113,12 +122,14 @@ public static class RabbitMQTopologyBuilder
             durable: true,
             exclusive: false,
             autoDelete: false,
-            arguments: null);
+            arguments: null,
+            cancellationToken: cancellationToken);
 
         await channel.QueueBindAsync(
             deadQueue,
             exchange,
-            deadRoutingKey);
+            deadRoutingKey,
+            cancellationToken: cancellationToken);
     }
 
     private static async Task SafeQueueDeclareAsync(
@@ -127,7 +138,8 @@ public static class RabbitMQTopologyBuilder
         bool durable,
         bool exclusive,
         bool autoDelete,
-        IDictionary<string, object>? arguments)
+        IDictionary<string, object>? arguments,
+        CancellationToken cancellationToken = default)
     {
         try
         {
@@ -136,7 +148,8 @@ public static class RabbitMQTopologyBuilder
                 durable: durable,
                 exclusive: exclusive,
                 autoDelete: autoDelete,
-                arguments: arguments);
+                arguments: arguments,
+                cancellationToken: cancellationToken);
         }
         catch (RabbitMQ.Client.Exceptions.OperationInterruptedException ex)
         {
@@ -147,7 +160,7 @@ public static class RabbitMQTopologyBuilder
             {
                 try
                 {
-                    await channel.QueueDeleteAsync(queue, ifUnused: false, ifEmpty: false);
+                    await channel.QueueDeleteAsync(queue, ifUnused: false, ifEmpty: false, cancellationToken: cancellationToken);
                 }
                 catch { }
 
@@ -156,7 +169,8 @@ public static class RabbitMQTopologyBuilder
                     durable: durable,
                     exclusive: exclusive,
                     autoDelete: autoDelete,
-                    arguments: arguments);
+                    arguments: arguments,
+                    cancellationToken: cancellationToken);
 
                 return;
             }

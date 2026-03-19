@@ -22,7 +22,7 @@ public class RabbitMQConsumerStarter(
     private readonly RabbitMQOptions _options = options.Value;
     private readonly easy_rabbitmq.Topology.TopologyManager _topologyManager = topologyManager;
 
-    public async Task StartAsync()
+    public async Task StartAsync(CancellationToken cancellationToken = default)
     {
         try
         {
@@ -35,7 +35,7 @@ public class RabbitMQConsumerStarter(
                 if (attr == null)
                     continue;
 
-                var channel = await _channelFactory.GetChannelAsync();
+                var channel = await _channelFactory.GetChannelAsync(cancellationToken);
 
                 // controla quantas mensagens podem ficar pendentes
                 await channel.BasicQosAsync(
@@ -59,7 +59,8 @@ public class RabbitMQConsumerStarter(
 
                 await RabbitMQTopologyBuilder.DeclareAsync(
                     channel,
-                    topology);
+                    topology,
+                    cancellationToken);
 
                 var consumer = new AsyncEventingBasicConsumer(channel);
 
@@ -124,6 +125,13 @@ public class RabbitMQConsumerStarter(
                     exclusive: false,
                     arguments: null,
                     consumer: consumer);
+
+                // check cancellation
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    // try to stop consuming
+                    break;
+                }
             }
 
             // sinaliza que a topologia foi criada com sucesso
