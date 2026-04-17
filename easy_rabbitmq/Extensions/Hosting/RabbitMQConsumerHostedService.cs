@@ -1,16 +1,19 @@
-﻿using Microsoft.Extensions.Hosting;
+﻿using easy_rabbitmq.Configuration;
+using easy_rabbitmq.Consumer;
+using Microsoft.Extensions.Hosting;
 
-namespace easy_rabbitmq.Consumer;
+namespace easy_rabbitmq.Extensions.Hosting;
 
 public class RabbitMQConsumerHostedService(
-    RabbitMQConsumerStarter starter)
+    RabbitMQConsumerStarter starter, RabbitMQTopology topology)
     : IHostedService
 {
     private readonly RabbitMQConsumerStarter _starter = starter;
+    private readonly RabbitMQTopology _topology = topology;
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
-        await _starter.StartAsync();
+        await _starter.StartAsync(_topology);
     }
 
     public Task StopAsync(CancellationToken cancellationToken)

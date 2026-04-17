@@ -15,14 +15,14 @@ public class RabbitMQConsumerStarter(
     IServiceProvider provider,
     IRabbitMQChannelFactory channelFactory,
     IOptions<RabbitMQOptions> options,
-    easy_rabbitmq.Topology.TopologyManager topologyManager)
+    TopologyManager topologyManager)
 {
     private readonly IServiceProvider _provider = provider;
     private readonly IRabbitMQChannelFactory _channelFactory = channelFactory;
     private readonly RabbitMQOptions _options = options.Value;
-    private readonly easy_rabbitmq.Topology.TopologyManager _topologyManager = topologyManager;
+    private readonly TopologyManager _topologyManager = topologyManager;
 
-    public async Task StartAsync()
+    public async Task StartAsync(RabbitMQTopology topology)
     {
         try
         {
@@ -39,24 +39,11 @@ public class RabbitMQConsumerStarter(
 
                 // controla quantas mensagens podem ficar pendentes
                 await channel.BasicQosAsync(
-                    prefetchSize: 0,
-                    prefetchCount: 10,
-                    global: false);
+                    prefetchSize: _options.PrefetchSize,
+                    prefetchCount: _options.PrefetchCount,
+                    global: _options.Global);
 
-                var topology = new RabbitMQTopology
-                {
-                    Exchange = attr.Exchange,
-                    Retry = _options.Retry,
-                    Queues = new List<RabbitMQQueueTopology>
-                    {
-                        new RabbitMQQueueTopology
-                        {
-                            Queue = attr.Queue,
-                            RoutingKey = attr.RoutingKey
-                        }
-                    }
-                };
-
+                
                 await RabbitMQTopologyBuilder.DeclareAsync(
                     channel,
                     topology);
@@ -98,7 +85,7 @@ public class RabbitMQConsumerStarter(
                             throw new InvalidOperationException(
                                 $"HandleAsync não encontrado em {consumerType.Name}");
 
-                        var task = (Task?)method.Invoke(handler, new object?[] { message });
+                        var task = (Task?)method.Invoke(handler, [message]);
 
                         if (task != null)
                             await task;
@@ -135,15 +122,14 @@ public class RabbitMQConsumerStarter(
             throw;
         }
     }
-
     private static Type? GetMessageType(Type consumerType)
     {
         var interfaceType = consumerType
             .GetInterfaces()
             .FirstOrDefault(i =>
                 i.IsGenericType &&
-                i.GetGenericTypeDefinition() ==
-                typeof(IRabbitMQMessageConsumer<>));
+                (i.GetGenericTypeDefinition() == typeof(IRabbitMQMessageConsumer<>) ||
+                 i.GetGenericTypeDefinition() == typeof(IRabbitMQHandler<>)));
 
         return interfaceType?.GetGenericArguments()[0];
     }

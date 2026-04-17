@@ -5,8 +5,9 @@ using easy_rabbitmq.Consumer;
 using easy_rabbitmq.Connection;
 using easy_rabbitmq.Services;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
 using System.Reflection;
+using easy_rabbitmq.Extensions.Hosting;
+using easy_rabbitmq.Topology;
 
 namespace easy_rabbitmq.Extensions;
 
@@ -14,13 +15,13 @@ public static class ServiceCollectionExtensions
 {
     public static IServiceCollection AddEasyRabbitMQ(
         this IServiceCollection services,
-        Action<RabbitMQOptions> configure)
+        Action<RabbitMQOptions> configure, RabbitMQTopology topology)
     {
         // Configuração via Options Pattern
         services.Configure(configure);
 
         // Topology manager to coordinate readiness
-        services.AddSingleton<easy_rabbitmq.Topology.TopologyManager>();
+        services.AddSingleton<TopologyManager>();
 
         services.AddSingleton<IRabbitMQConnection, RabbitMQConnection>();
         services.AddSingleton<IRabbitMQChannelFactory, RabbitMQChannelFactory>();
@@ -32,6 +33,7 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<RabbitMQConsumerStarter>();
         services.AddSingleton<IRabbitMQConsumer, RabbitMQConsumer>();
 
+        services.AddSingleton(topology);
         // Auto start dos consumers
         services.AddHostedService<RabbitMQConsumerHostedService>();
 

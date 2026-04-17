@@ -20,16 +20,9 @@ public class RabbitMQConsumer(IRabbitMQChannelPool channelPool) : IRabbitMQConsu
 
         try
         {
-            await channel.QueueDeclareAsync(
-                queue: queue,
-                durable: true,
-                exclusive: false,
-                autoDelete: false);
+            await channel.QueueDeclareAsync(queue: queue, durable: true, exclusive: false, autoDelete: false, cancellationToken: cancellationToken);
 
-            await channel.BasicQosAsync(
-                prefetchSize: 0,
-                prefetchCount: 10,
-                global: false);
+            await channel.BasicQosAsync(prefetchSize: 0, prefetchCount: 10, global: false, cancellationToken: cancellationToken);
 
             var consumer = new AsyncEventingBasicConsumer(channel);
 
@@ -45,21 +38,19 @@ public class RabbitMQConsumer(IRabbitMQChannelPool channelPool) : IRabbitMQConsu
                     if (message != null)
                         await handler(message);
 
-                    await channel.BasicAckAsync(ea.DeliveryTag, false);
+                    await channel.BasicAckAsync(ea.DeliveryTag, false, cancellationToken: cancellationToken);
                 }
                 catch
                 {
                     await channel.BasicNackAsync(
                         ea.DeliveryTag,
                         false,
-                        true);
+                        true,
+                        cancellationToken: cancellationToken);
                 }
             };
 
-            await channel.BasicConsumeAsync(
-                queue: queue,
-                autoAck: false,
-                consumer: consumer);
+            await channel.BasicConsumeAsync(queue: queue, autoAck: false, consumer: consumer, cancellationToken: cancellationToken);
 
             // mantém o consumer ativo até o cancelamento
             try

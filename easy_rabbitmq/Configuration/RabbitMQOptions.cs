@@ -16,4 +16,7 @@ public class RabbitMQOptions
     public int RequestedHeartbeat { get; set; } = 60;
     public bool AutomaticRecoveryEnabled { get; set; } = true;
     public RabbitMQRetryOptions Retry { get; set; } = new();
+    public ushort PrefetchSize { get; set; } = 0;
+    public ushort PrefetchCount { get; set; } = 10;
+    public bool Global { get; set; } = false;
 }
