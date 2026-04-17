@@ -139,7 +139,7 @@ public static class RabbitMQTopologyBuilder
         bool exclusive,
         bool autoDelete,
         IDictionary<string, object?>? arguments,
-        CancellationToken cancellationToken = default))
+        CancellationToken cancellationToken = default)
     {
         try
         {

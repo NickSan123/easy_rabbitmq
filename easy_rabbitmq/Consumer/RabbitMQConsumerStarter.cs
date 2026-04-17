@@ -15,6 +15,7 @@ public class RabbitMQConsumerStarter(
     IServiceProvider provider,
     IRabbitMQChannelFactory channelFactory,
     IOptions<RabbitMQOptions> options,
+    RabbitMQTopology topology,
     TopologyManager topologyManager)
 {
     private readonly IServiceProvider _provider = provider;
@@ -22,7 +23,7 @@ public class RabbitMQConsumerStarter(
     private readonly RabbitMQOptions _options = options.Value;
     private readonly TopologyManager _topologyManager = topologyManager;
 
-    public async Task StartAsync(RabbitMQTopology topology)
+    public async Task StartAsync(CancellationToken cancellationToken = default)
     {
         try
         {
@@ -35,7 +36,7 @@ public class RabbitMQConsumerStarter(
                 if (attr == null)
                     continue;
 
-                var channel = await _channelFactory.GetChannelAsync();
+                var channel = await _channelFactory.GetChannelAsync(cancellationToken);
 
                 // controla quantas mensagens podem ficar pendentes
                 await channel.BasicQosAsync(
@@ -46,7 +47,8 @@ public class RabbitMQConsumerStarter(
                 
                 await RabbitMQTopologyBuilder.DeclareAsync(
                     channel,
-                    topology);
+                    topology,
+                    cancellationToken);
 
                 var consumer = new AsyncEventingBasicConsumer(channel);
 
@@ -103,14 +105,14 @@ public class RabbitMQConsumerStarter(
                     }
                 };
 
-                await channel.BasicConsumeAsync(
-                    queue: attr.Queue,
-                    autoAck: false,
-                    consumerTag: string.Empty,
-                    noLocal: false,
-                    exclusive: false,
-                    arguments: null,
-                    consumer: consumer);
+                await channel.BasicConsumeAsync(queue: attr.Queue, autoAck: false, consumerTag: string.Empty, noLocal: false, exclusive: false, arguments: null, consumer: consumer, cancellationToken: cancellationToken);
+
+                // check cancellation
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    // try to stop consuming
+                    break;
+                }
             }
 
             // sinaliza que a topologia foi criada com sucesso
