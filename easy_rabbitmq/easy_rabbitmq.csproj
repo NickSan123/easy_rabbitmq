@@ -5,6 +5,10 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <PackageLicenseFile>LICENSE</PackageLicenseFile>
+    <Version>1.0.1</Version>
+    <Authors>João Nicolai Martins Pereira</Authors>
+    <PackageId>easy_rabbitmq</PackageId>
+    <RepositoryUrl>https://github.com/NickSan123/easy_rabbitmq</RepositoryUrl>
   </PropertyGroup>
 
   <ItemGroup>

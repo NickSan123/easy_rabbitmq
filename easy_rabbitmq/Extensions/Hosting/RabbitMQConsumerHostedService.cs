@@ -13,7 +13,7 @@ public class RabbitMQConsumerHostedService(
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
-        await _starter.StartAsync(_topology);
+        await _starter.StartAsync(_topology, cancellationToken);
     }
 
     public Task StopAsync(CancellationToken cancellationToken)
