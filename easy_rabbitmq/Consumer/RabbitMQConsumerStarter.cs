@@ -12,13 +12,13 @@ using System.Text.Json;
 namespace easy_rabbitmq.Consumer;
 
 public class RabbitMQConsumerStarter(
-    IServiceProvider provider,
+    IServiceScopeFactory serviceScopeFactory,
     IRabbitMQChannelFactory channelFactory,
     IOptions<RabbitMQOptions> options,
     RabbitMQTopology topology,
     TopologyManager topologyManager)
 {
-    private readonly IServiceProvider _provider = provider;
+    private readonly IServiceScopeFactory _serviceScopeFactory = serviceScopeFactory;
     private readonly IRabbitMQChannelFactory _channelFactory = channelFactory;
     private readonly RabbitMQOptions _options = options.Value;
     private readonly TopologyManager _topologyManager = topologyManager;
@@ -54,7 +54,7 @@ public class RabbitMQConsumerStarter(
 
                 consumer.ReceivedAsync += async (_, ea) =>
                 {
-                    using var scope = _provider.CreateScope();
+                    using var scope = _serviceScopeFactory.CreateScope();
 
                     try
                     {
