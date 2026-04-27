@@ -1,22 +1,21 @@
-# Easy RabbitMQ 🐇
-
-Uma biblioteca leve, resiliente e de alta performance para integração com RabbitMQ em .NET. O **Easy RabbitMQ** abstrai a complexidade de gerenciamento de conexões, pooling de canais e criação de topologia, permitindo que você foque no que importa: a lógica de negócio.
-
-## 📦 Instalação
-
-Adicione o pacote ao seu projeto via .NET CLI:
-
+Easy RabbitMQ 🐇
+Uma biblioteca leve, resiliente e de alta performance para integração com RabbitMQ em .NET. O Easy RabbitMQ abstrai a complexidade de gerenciamento de conexões, pooling de canais e criação de topologia, permitindo que você foque no que importa: a lógica de negócio.
+---
+📦 Instalação
+A biblioteca é dividida em dois pacotes:
+🔹 Core (obrigatório)
 ```bash
 dotnet add package easy_rabbitmq
 ```
-
+🔹 Hosting (opcional, recomendado para aplicações)
+```bash
+dotnet add package easy_rabbitmq.Hosting
+```
+> 💡 O pacote `easy_rabbitmq.Hosting` adiciona integração com `IHostedService` para iniciar automaticamente os consumidores.
 ---
-
-## 🚀 Guia de Configuração
-
-### 1. Definindo a Topologia
+🚀 Guia de Configuração
+1. Definindo a Topologia
 Diferente de outras bibliotecas, o Easy RabbitMQ permite que você defina a infraestrutura (Exchanges e Queues) de forma centralizada.
-
 ```csharp
 using easy_rabbitmq.Configuration;
 using easy_rabbitmq.Enums;
@@ -32,18 +31,18 @@ var topology = new RabbitMQTopology
     Retry = new RabbitMQRetryOptions 
     { 
         Enabled = true, 
-        Delays = [5, 10, 30], // Segundos entre tentativas
+        Delays = [5, 10, 30], // segundos
         RetrySuffix = ".retry",
         DeadSuffix = ".dead"
     } 
 };
 ```
-
-### 2. Registro no Container de DI
-No seu `Program.cs`, registre a biblioteca passando as opções de conexão e a topologia definida:
-
+---
+2. Registro no Container de DI
+No seu `Program.cs`:
 ```csharp
 using easy_rabbitmq.Extensions;
+using easy_rabbitmq.Hosting.Extensions;
 
 builder.Services.AddEasyRabbitMQ(options => 
 { 
@@ -51,53 +50,52 @@ builder.Services.AddEasyRabbitMQ(options =>
     options.UserName = "guest"; 
     options.Password = "guest"; 
     options.ClientProvidedName = "minha-aplicacao"; 
-}, topology); 
+}, topology);
 
-// Registra automaticamente todos os Handlers do projeto
+// 🔥 Opcional: inicia automaticamente os consumers
+builder.Services.AddEasyRabbitMQHosting();
+
+// 🔍 Scan automático dos handlers
 builder.Services.AddRabbitMQConsumersFromAssembly(typeof(Program).Assembly);
 ```
-
 ---
-
-## 📥 Consumindo Mensagens (Consumer)
-
-Para consumir mensagens, basta criar uma classe que implemente `IRabbitMQHandler<T>` e decorá-la com o atributo `[RabbitMQConsumer]`. 
-
-A biblioteca gerencia o escopo de injeção de dependência para você, permitindo injetar serviços `Scoped` ou `Transient` diretamente no construtor.
-
+📥 Consumindo Mensagens (Consumer)
+Crie uma classe que implemente `IRabbitMQHandler<T>` e utilize o atributo `[RabbitMQConsumer]`.
 ```csharp
 using easy_rabbitmq.Abstractions;
 using easy_rabbitmq.Consumer;
 
-[RabbitMQConsumer(exchange: "vendas.events", queue: "processar-pedido", routingKey: "pedido.criado")] 
+[RabbitMQConsumer(
+    exchange: "vendas.events", 
+    queue: "processar-pedido", 
+    routingKey: "pedido.criado")]
 public class PedidoHandler(
     ILogger<PedidoHandler> logger, 
-    IBancoDeDados db) : IRabbitMQHandler<PedidoDto> 
-{ 
-    public async Task HandleAsync(PedidoDto message) 
-    { 
-        logger.LogInformation("Processando pedido: {Id}", message.Id); 
-        
-        // Se este método lançar uma exceção, o sistema de Retry entrará em ação automaticamente
-        await db.SalvarPedidoAsync(message); 
-    } 
+    IBancoDeDados db) : IRabbitMQHandler<PedidoDto>
+{
+    public async Task HandleAsync(PedidoDto message)
+    {
+        logger.LogInformation("Processando pedido: {Id}", message.Id);
+
+        // Se lançar exceção → entra no retry automaticamente
+        await db.SalvarPedidoAsync(message);
+    }
 }
 ```
-
 ---
-
-## 📤 Publicando Mensagens (Producer)
-
-Injete `IRabbitMQPublisher` em seus serviços ou APIs para enviar mensagens de forma eficiente utilizando o **Channel Pool**.
-
+📤 Publicando Mensagens (Producer)
+Injete `IRabbitMQPublisher`:
 ```csharp
 public class CheckoutService(IRabbitMQPublisher publisher)
 {
     public async Task FinalizarCompra(Pedido pedido)
     {
-        var evento = new PedidoDto { Id = pedido.Id, Valor = pedido.Total };
+        var evento = new PedidoDto 
+        { 
+            Id = pedido.Id, 
+            Valor = pedido.Total 
+        };
 
-        // Publica na exchange definida na topologia
         await publisher.PublishAsync(
             exchange: "vendas.events",
             routingKey: "pedido.criado",
@@ -106,22 +104,49 @@ public class CheckoutService(IRabbitMQPublisher publisher)
     }
 }
 ```
-
 ---
+⚙️ Modo sem Hosting (avançado)
+Se você não quiser usar `easy_rabbitmq.Hosting`, pode iniciar manualmente:
+```csharp
+public class Worker : BackgroundService
+{
+    private readonly RabbitMQConsumerStarter _starter;
 
-## 🛠️ Arquitetura e Diferenciais
+    public Worker(RabbitMQConsumerStarter starter)
+    {
+        _starter = starter;
+    }
 
-### **Resiliência com Retry e Dead Letter**
-Ao ativar o `Retry` na topologia, o Easy RabbitMQ cria automaticamente uma estrutura robusta:
-1. **Fila Principal**: Onde o processamento ocorre em tempo real.
-2. **Filas de Retry**: Caso o Handler falhe, a mensagem é movida para filas de atraso (TTL) antes de retornar para a principal.
-3. **Fila .dead**: Se todas as tentativas falharem, a mensagem é movida para esta fila para auditoria manual, evitando perda de dados.
-
-### **Alta Performance (Channel Pooling)**
-Abrir e fechar canais AMQP é custoso. Nossa biblioteca implementa um `IRabbitMQChannelPool` que reutiliza canais abertos, reduzindo drasticamente o overhead de CPU e latência de rede.
-
-### **Escaneamento Automático**
-O método `AddRabbitMQConsumersFromAssembly` elimina a necessidade de registrar cada Handler manualmente. Basta criar a classe e colocar o atributo que ela começará a processar mensagens assim que o app iniciar.
-
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        await _starter.StartAsync(stoppingToken);
+    }
+}
+```
 ---
-Desenvolvido para simplificar sistemas distribuídos em .NET com as melhores práticas de mercado.
+🛠️ Arquitetura
+📦 Separação por camadas
+Pacote	Responsabilidade
+`easy_rabbitmq`	Core (conexão, publisher, consumer, pooling)
+`easy_rabbitmq.Hosting`	Integração com .NET Hosting (`IHostedService`)
+---
+🔥 Diferenciais
+Resiliência com Retry + Dead Letter
+Retry automático com delays configuráveis
+Fila `.dead` para mensagens não processadas
+Alta Performance
+Pool de canais (`Channel Pool`)
+Redução de overhead de conexão
+Simplicidade
+Scan automático de consumers
+Baixo acoplamento
+Configuração centralizada
+---
+🎯 Conclusão
+O Easy RabbitMQ segue boas práticas modernas de arquitetura:
+Separação entre Core e Hosting
+Baixo acoplamento
+Alta performance
+Fácil uso
+---
+Desenvolvido para simplificar sistemas distribuídos em .NET 🚀

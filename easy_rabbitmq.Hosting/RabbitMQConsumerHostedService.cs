@@ -2,7 +2,7 @@
 using easy_rabbitmq.Consumer;
 using Microsoft.Extensions.Hosting;
 
-namespace easy_rabbitmq.Extensions.Hosting;
+namespace easy_rabbitmq.Hosting;
 
 public class RabbitMQConsumerHostedService(
     RabbitMQConsumerStarter starter, RabbitMQTopology topology)

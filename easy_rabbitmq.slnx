@@ -1,5 +1,7 @@
 <Solution>
+  <Folder Name="/Itens de Solução/" />
   <Project Path="easy_rabbitmq.consumer.example/easy_rabbitmq.consumer.example.csproj" Id="0a66a22c-7109-4af3-b9c1-616ab8db1162" />
-  <Project Path="easy_rabbitmq/easy_rabbitmq.csproj" />
+  <Project Path="easy_rabbitmq.Hosting/easy_rabbitmq.Hosting.csproj" />
   <Project Path="easy_rabbitmq.producer.example/rabbitmq.producer.example.csproj" />
+  <Project Path="easy_rabbitmq/easy_rabbitmq.csproj" />
 </Solution>

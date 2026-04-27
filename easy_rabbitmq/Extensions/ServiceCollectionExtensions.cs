@@ -6,7 +6,6 @@ using easy_rabbitmq.Connection;
 using easy_rabbitmq.Services;
 using Microsoft.Extensions.DependencyInjection;
 using System.Reflection;
-using easy_rabbitmq.Extensions.Hosting;
 using easy_rabbitmq.Topology;
 
 namespace easy_rabbitmq.Extensions;
@@ -35,7 +34,6 @@ public static class ServiceCollectionExtensions
 
         services.AddSingleton(topology);
         // Auto start dos consumers
-        services.AddHostedService<RabbitMQConsumerHostedService>();
 
         return services;
     }

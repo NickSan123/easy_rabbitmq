@@ -1,6 +1,7 @@
 ﻿using easy_rabbitmq.Configuration;
 using easy_rabbitmq.consumer.example;
 using easy_rabbitmq.Extensions;
+using easy_rabbitmq.Hosting;
 using Microsoft.Extensions.Hosting;
 
 var builder = Host.CreateApplicationBuilder(args);
@@ -33,7 +34,7 @@ builder.Services.AddEasyRabbitMQ(options =>
     options.VirtualHost = builder.Configuration["rabbit_virtual_host"] ?? "/";
     options.ClientProvidedName = builder.Configuration["rabbit_client_provided_name"] ?? "bot-zamigos-last-device-consumer";
 }, topology);
-
+builder.Services.AddEasyRabbitMQHosting();
 builder.Services.AddRabbitMQConsumersFromAssembly(typeof(DeviceHandler).Assembly);
 
 var host = builder.Build();
