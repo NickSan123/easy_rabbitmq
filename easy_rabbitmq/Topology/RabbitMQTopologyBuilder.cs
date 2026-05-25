@@ -32,9 +32,9 @@ public static class RabbitMQTopologyBuilder
             await SafeQueueDeclareAsync(channel,
                 queue: queue.Queue,
                 durable: queue.Durable,
-                exclusive: false,
-                autoDelete: false,
-                arguments: null,
+                exclusive: queue.Exclusive,
+                autoDelete: queue.AutoDelete,
+                arguments: queue.Arguments,
                 cancellationToken: cancellationToken);
 
             await channel.QueueBindAsync(
@@ -53,8 +53,9 @@ public static class RabbitMQTopologyBuilder
     {
         var retry = topology.Retry!;
         var exchange = topology.Exchange;
-        var mainRoutingKey = queue.RoutingKey;
-        var deadRoutingKey = $"{mainRoutingKey}.dead";
+        string mainRoutingKey = queue.RoutingKey;
+
+        string deadRoutingKey = $"{NormalizeRoutingKey(mainRoutingKey)}.dead";
 
         // garante que exista apenas o exchange principal
         await channel.ExchangeDeclareAsync(
@@ -67,14 +68,14 @@ public static class RabbitMQTopologyBuilder
         var mainArgs = new Dictionary<string, object?>()
         {
             { "x-dead-letter-exchange", exchange },
-            { "x-dead-letter-routing-key", $"{mainRoutingKey}.retry.1" }
+            { "x-dead-letter-routing-key", $"{NormalizeRoutingKey(mainRoutingKey)}.retry.1" }
         };
 
         await SafeQueueDeclareAsync(channel,
             queue: queue.Queue,
             durable: queue.Durable,
-            exclusive: false,
-            autoDelete: false,
+            exclusive: queue.Exclusive,
+            autoDelete: queue.AutoDelete,
             arguments: mainArgs,
             cancellationToken: cancellationToken);
 
@@ -90,8 +91,8 @@ public static class RabbitMQTopologyBuilder
             var delay = retry.Delays[i];
             var retryIndex = i + 1;
             var retryQueueName = $"{queue.Queue}{retry.RetrySuffix}.{retryIndex}";
-            var retryRoutingKey = $"{mainRoutingKey}.retry.{retryIndex}";
-            var nextRoutingKey = (i == retry.Delays.Length - 1) ? deadRoutingKey : $"{mainRoutingKey}.retry.{retryIndex + 1}";
+            var retryRoutingKey = $"{NormalizeRoutingKey(mainRoutingKey)}.retry.{retryIndex}";
+            var nextRoutingKey = (i == retry.Delays.Length - 1) ? deadRoutingKey : $"{NormalizeRoutingKey(mainRoutingKey)}.retry.{retryIndex + 1}";
 
             var args = new Dictionary<string, object?>
             {
@@ -103,8 +104,8 @@ public static class RabbitMQTopologyBuilder
             await SafeQueueDeclareAsync(channel,
                 queue: retryQueueName,
                 durable: true,
-                exclusive: false,
-                autoDelete: false,
+                exclusive: queue.Exclusive,
+                autoDelete: queue.AutoDelete,
                 arguments: args,
                 cancellationToken: cancellationToken);
 
@@ -120,8 +121,8 @@ public static class RabbitMQTopologyBuilder
         await SafeQueueDeclareAsync(channel,
             queue: deadQueue,
             durable: true,
-            exclusive: false,
-            autoDelete: false,
+            exclusive: queue.Exclusive,
+            autoDelete: queue.AutoDelete,
             arguments: null,
             cancellationToken: cancellationToken);
 
@@ -131,7 +132,10 @@ public static class RabbitMQTopologyBuilder
             deadRoutingKey,
             cancellationToken: cancellationToken);
     }
-
+    private static string NormalizeRoutingKey(string routingKey)
+    {
+        return routingKey.Replace(".*", "").Replace(".#", "");
+    }
     private static async Task SafeQueueDeclareAsync(
         IChannel channel,
         string queue,

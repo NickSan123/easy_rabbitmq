@@ -5,7 +5,7 @@ using Microsoft.Extensions.Logging;
 namespace easy_rabbitmq.consumer.example;
 
 
-[RabbitMQConsumer(exchange: "example.events", queue: "example.queue.last", routingKey: "device.last")]
+[RabbitMQConsumer(exchange: "example.events", queue: "example.queue", routingKey: "exemple.*")]
 public class DeviceHandler(
     ILogger<DeviceHandler> logger) : IRabbitMQHandler<MessageDto>
 {

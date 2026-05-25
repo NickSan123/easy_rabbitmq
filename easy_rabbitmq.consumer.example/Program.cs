@@ -13,8 +13,7 @@ var topology = new RabbitMQTopology
     Durable = true,
     Queues =
 [
-new() { Queue = "example.queue.last", RoutingKey = "device.last", Durable = true },
-    new() { Queue = "example.queue.logs", RoutingKey = "device.logs", Durable = true }
+    new() { Queue = "example.queue", RoutingKey = "device.*", Durable = true }
 ],
     Retry = new RabbitMQRetryOptions
     {
